@@ -1,0 +1,14 @@
+{
+  "name": "antigravity-session-archiver",
+  "version": "1.0.0",
+  "description": "Antigravity 2.0 Plugin for convenient session archiving, backup, transcript markdown export, and archive restoration.",
+  "author": "Antigravity Open Source Community",
+  "license": "MIT",
+  "homepage": "https://github.com/clannad603/antigravity-session-archiver",
+  "skills": [
+    {
+      "name": "antigravity-session-archiver",
+      "path": "SKILL.md"
+    }
+  ]
+}
