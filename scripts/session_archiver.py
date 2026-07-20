@@ -11,6 +11,9 @@ import sys
 import json
 import zipfile
 import argparse
+import webbrowser
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 from pathlib import Path
 
@@ -63,7 +66,7 @@ def archive_session(session_dir, output_path=None, description=""):
     session_path = Path(session_dir).resolve()
     if not session_path.exists():
         print(f"[Error] Session directory not found: {session_dir}")
-        sys.exit(1)
+        return False, f"Session directory not found: {session_dir}"
 
     session_id = session_path.name
     logs_dir = session_path / ".system_generated" / "logs"
@@ -103,17 +106,14 @@ def archive_session(session_dir, output_path=None, description=""):
                 zipf.write(full_path, arcname=Path("data") / rel_path)
 
     print(f"✅ Session successfully archived to: {output_zip}")
-    print(f"   - Total Steps: {manifest['total_steps']}")
-    print(f"   - User Inputs: {manifest['user_input_count']}")
-    print(f"   - Tool Calls: {manifest['tool_calls_count']}")
-    return str(output_zip)
+    return True, str(output_zip)
 
 def restore_session(archive_path, target_dir):
     """Restore an .agarch bundle into target directory."""
     archive_file = Path(archive_path).resolve()
     if not archive_file.exists():
         print(f"[Error] Archive file not found: {archive_path}")
-        sys.exit(1)
+        return False, f"Archive file not found: {archive_path}"
 
     target_path = Path(target_dir).resolve()
     target_path.mkdir(parents=True, exist_ok=True)
@@ -151,15 +151,14 @@ def restore_session(archive_path, target_dir):
     context_md.write_text("\n".join(summary_content), encoding="utf-8")
 
     print(f"✅ Session restored to: {target_path}")
-    print(f"📄 Summary context note created: {context_md}")
-    return str(target_path)
+    return True, str(target_path)
 
 def export_markdown(transcript_path, output_md_path):
     """Convert a transcript.jsonl file into a readable Markdown report."""
     input_file = Path(transcript_path).resolve()
     if not input_file.exists():
         print(f"[Error] Transcript file not found: {transcript_path}")
-        sys.exit(1)
+        return False, f"Transcript file not found: {transcript_path}"
 
     parsed = parse_transcript(input_file)
     output_file = Path(output_md_path).resolve()
@@ -195,31 +194,246 @@ def export_markdown(transcript_path, output_md_path):
 
     output_file.write_text("\n".join(md_lines), encoding="utf-8")
     print(f"📄 Exported transcript report to: {output_file}")
-    return str(output_file)
+    return True, str(output_file)
 
-def list_archives(dir_path):
-    """List all .agarch files in a given directory."""
+def get_archives_list(dir_path):
+    """Get list of archives as structured JSON dict."""
     folder = Path(dir_path).resolve()
     if not folder.exists():
-        print(f"[Error] Directory not found: {dir_path}")
-        sys.exit(1)
+        return []
 
     archives = list(folder.glob("*.agarch")) + list(folder.glob("*.zip"))
-    print(f"🔍 Found {len(archives)} archive(s) in `{folder}`:\n")
+    results = []
     for arc in archives:
+        info = {
+            "filename": arc.name,
+            "filepath": str(arc),
+            "size_bytes": arc.stat().st_size,
+            "size_mb": round(arc.stat().st_size / (1024 * 1024), 2)
+        }
         try:
             with zipfile.ZipFile(arc, "r") as zipf:
                 if "manifest.json" in zipf.namelist():
                     manifest = json.loads(zipf.read("manifest.json").decode("utf-8"))
-                    print(f"📦 Archive: {arc.name}")
-                    print(f"   ├─ Session ID: {manifest.get('session_id')}")
-                    print(f"   ├─ Archived At: {manifest.get('archived_at')}")
-                    print(f"   ├─ Initial Prompt: {manifest.get('initial_prompt')[:60]}...")
-                    print(f"   └─ Steps: {manifest.get('total_steps')} | Tool Calls: {manifest.get('tool_calls_count')}\n")
+                    info.update(manifest)
                 else:
-                    print(f"📦 File: {arc.name} (Legacy or unmanifested ZIP archive)\n")
+                    info["session_id"] = arc.stem
+                    info["archived_at"] = datetime.fromtimestamp(arc.stat().st_mtime).isoformat()
+                    info["initial_prompt"] = "Legacy / Unmanifested ZIP Archive"
         except Exception as e:
-            print(f"📦 File: {arc.name} (Error reading zip: {e})\n")
+            info["error"] = str(e)
+        results.append(info)
+    return results
+
+def list_archives(dir_path):
+    """List all .agarch files in a given directory via CLI."""
+    archives = get_archives_list(dir_path)
+    print(f"🔍 Found {len(archives)} archive(s) in `{Path(dir_path).resolve()}`:\n")
+    for arc in archives:
+        print(f"📦 Archive: {arc['filename']}")
+        print(f"   ├─ Session ID: {arc.get('session_id', 'Unknown')}")
+        print(f"   ├─ Archived At: {arc.get('archived_at', 'Unknown')}")
+        print(f"   ├─ Initial Prompt: {str(arc.get('initial_prompt', ''))[:60]}...")
+        print(f"   └─ Steps: {arc.get('total_steps', 0)} | Tool Calls: {arc.get('tool_calls_count', 0)}\n")
+
+# Built-in Single Page Application HTML Dashboard
+HTML_DASHBOARD = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity 2.0 会话归档管理面板</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --accent-color: #38bdf8;
+            --accent-hover: #0284c7;
+            --border-color: #334155;
+            --success-color: #4ade80;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background: var(--bg-color); color: var(--text-main); padding: 24px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); }
+        .title { font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .btn { background: var(--accent-color); color: #000; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn:hover { background: var(--accent-hover); color: #fff; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+        .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-3px); border-color: var(--accent-color); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .session-id { font-size: 16px; font-weight: 600; color: var(--accent-color); }
+        .badge { background: rgba(56, 189, 248, 0.15); color: var(--accent-color); font-size: 12px; padding: 4px 8px; border-radius: 6px; }
+        .prompt-text { font-size: 14px; color: var(--text-sub); margin-bottom: 16px; height: 42px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .stats-row { display: flex; gap: 16px; font-size: 13px; color: var(--text-sub); margin-bottom: 16px; }
+        .stats-item span { color: var(--text-main); font-weight: 600; }
+        .card-actions { display: flex; gap: 10px; }
+        .btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; flex: 1; text-align: center; }
+        .btn-outline:hover { border-color: var(--accent-color); color: var(--accent-color); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); align-items: center; justify-content: center; }
+        .modal-content { background: var(--card-bg); border-radius: 12px; padding: 24px; width: 480px; border: 1px solid var(--border-color); }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-size: 14px; color: var(--text-sub); }
+        .form-group input { width: 100%; padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <div class="title">Antigravity 2.0 会话归档管理面板</div>
+            <div style="font-size: 13px; color: var(--text-sub); margin-top: 4px;">可视化浏览、一键解包恢复与历史对话导出的调试中心</div>
+        </div>
+        <div>
+            <button class="btn" onclick="openArchiveModal()">+ 新建归档打包</button>
+        </div>
+    </div>
+
+    <div class="grid" id="archives-grid">
+        <div style="color: var(--text-sub)">加载归档列表中...</div>
+    </div>
+
+    <div class="modal" id="archiveModal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 16px;">打包归档指定会话</h3>
+            <div class="form-group">
+                <label>会话目录路径 (Session Directory)</label>
+                <input type="text" id="sessionDirInput" placeholder="例如: C:\\Users\\...\\.gemini\\antigravity\\brain\\xxx">
+            </div>
+            <div class="form-group">
+                <label>输出文件名 (.agarch)</label>
+                <input type="text" id="outputFileInput" placeholder="my_session.agarch (可选)">
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                <button class="btn-outline" onclick="closeArchiveModal()">取消</button>
+                <button class="btn" onclick="submitArchive()">确定归档</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchArchives() {
+            const res = await fetch('/api/archives');
+            const data = await res.json();
+            const grid = document.getElementById('archives-grid');
+            if (data.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 48px; color: var(--text-sub);">暂无归档文件。点击右上方按键添加归档。</div>';
+                return;
+            }
+            grid.innerHTML = data.map(arc => `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="session-id">${arc.session_id || arc.filename}</div>
+                        <div class="badge">${arc.size_mb} MB</div>
+                    </div>
+                    <div class="prompt-text">${arc.initial_prompt || '无提示词记录'}</div>
+                    <div class="stats-row">
+                        <div class="stats-item">对话步数: <span>${arc.total_steps || 0}</span></div>
+                        <div class="stats-item">工具调用: <span>${arc.tool_calls_count || 0}</span></div>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-outline" onclick="restoreArchive('${arc.filename}')">📂 恢复解包</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openArchiveModal() { document.getElementById('archiveModal').style.display = 'flex'; }
+        function closeArchiveModal() { document.getElementById('archiveModal').style.display = 'none'; }
+
+        async function submitArchive() {
+            const sessionDir = document.getElementById('sessionDirInput').value;
+            const output = document.getElementById('outputFileInput').value;
+            if(!sessionDir) return alert('请输入会话目录路径');
+            const res = await fetch('/api/archive', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ session_dir: sessionDir, output: output })
+            });
+            const result = await res.json();
+            if(result.success) {
+                alert('打包归档成功！');
+                closeArchiveModal();
+                fetchArchives();
+            } else {
+                alert('错误: ' + result.message);
+            }
+        }
+
+        async function restoreArchive(filename) {
+            const targetDir = prompt('请输入提取解包的目标目录:', './restored_' + filename.replace('.agarch',''));
+            if(!targetDir) return;
+            const res = await fetch('/api/restore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ input: filename, output: targetDir })
+            });
+            const result = await res.json();
+            if(result.success) {
+                alert('解包恢复成功！已创建 RESTORED_SESSION_CONTEXT.md 上下文笔记');
+            } else {
+                alert('恢复失败: ' + result.message);
+            }
+        }
+
+        fetchArchives();
+    </script>
+</body>
+</html>"""
+
+class WebUIHandler(BaseHTTPRequestHandler):
+    """HTTP Request Handler for built-in Web GUI."""
+    dir_path = "."
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path in ["/", "/index.html"]:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(HTML_DASHBOARD.encode("utf-8"))
+        elif parsed.path == "/api/archives":
+            archives = get_archives_list(self.dir_path)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(archives, ensure_ascii=False).encode("utf-8"))
+        else:
+            self.send_error(404, "Not Found")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        data = json.loads(body)
+
+        if parsed.path == "/api/archive":
+            success, msg = archive_session(data.get("session_dir"), data.get("output"), data.get("description", ""))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success, "message": msg}).encode("utf-8"))
+        elif parsed.path == "/api/restore":
+            success, msg = restore_session(data.get("input"), data.get("output"))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success, "message": msg}).encode("utf-8"))
+        else:
+            self.send_error(404, "Not Found")
+
+def start_web_ui(dir_path=".", port=8080):
+    """Launch built-in local web server and open browser."""
+    WebUIHandler.dir_path = dir_path
+    server = HTTPServer(("127.0.0.1", port), WebUIHandler)
+    url = f"http://127.0.0.1:{port}"
+    print(f"🚀 Launching Antigravity Session Archiver Web UI at: {url}")
+    webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n🛑 Web UI Server stopped.")
 
 def main():
     parser = argparse.ArgumentParser(description="Antigravity 2.0 Session Archiver Tool")
@@ -227,16 +441,20 @@ def main():
     parser.add_argument("--restore", action="store_true", help="Restore an .agarch archive")
     parser.add_argument("--export-md", action="store_true", help="Export transcript.jsonl to readable Markdown")
     parser.add_argument("--list", action="store_true", help="List archives in a directory")
+    parser.add_argument("--ui", action="store_true", help="Launch local Web GUI Dashboard in browser")
     
     parser.add_argument("--session-dir", type=str, help="Path to session directory to archive")
     parser.add_argument("--input", type=str, help="Input archive file (.agarch) or transcript file (.jsonl)")
     parser.add_argument("--output", type=str, help="Output destination path")
     parser.add_argument("--dir", type=str, default=".", help="Directory path to scan for archives")
+    parser.add_argument("--port", type=int, default=8080, help="Port for local Web UI (default: 8080)")
     parser.add_argument("--description", type=str, default="", help="Optional description for archive manifest")
 
     args = parser.parse_args()
 
-    if args.archive:
+    if args.ui:
+        start_web_ui(args.dir, args.port)
+    elif args.archive:
         if not args.session_dir:
             print("[Error] --session-dir is required for --archive")
             sys.exit(1)
@@ -258,3 +476,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

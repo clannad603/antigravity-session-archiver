@@ -38,8 +38,10 @@ To convert a raw `transcript.jsonl` log file into a clean human-readable Markdow
 python scripts/session_archiver.py --export-md --input <path_to_transcript.jsonl> --output <path_to_report.md>
 ```
 
-### 4. Listing Archives (`--list`)
-To inspect all `.agarch` archive files in a folder:
+### 4. Visual Web UI Dashboard (`--ui`)
+To open a local dark-mode Web GUI dashboard in browser:
 ```bash
-python scripts/session_archiver.py --list --dir <directory_path>
+python scripts/session_archiver.py --ui --port 8080
 ```
+This allows visual browsing of archives, one-click session packing, and archive restoration.
+

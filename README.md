@@ -30,8 +30,15 @@ git clone https://github.com/clannad603/antigravity-session-archiver.git ~/.gemi
 git clone https://github.com/clannad603/antigravity-session-archiver.git .agents/skills/antigravity-session-archiver
 ```
 
-### 🛠️ 命令行使用指南 (CLI Usage)
+### 🛠️ 命令行与 Web 可视化面板指南 (CLI & Web UI)
 
+#### 🖥️ 打开可视化 Web Dashboard (推荐)
+```bash
+python scripts/session_archiver.py --ui --port 8080
+```
+运行后会自动在浏览器打开 `http://127.0.0.1:8080` 可视化面板，提供卡片式浏览、一键打包归档、解包恢复与统计数据展示。
+
+#### 💻 命令行直接调用 (CLI Usage)
 ```bash
 # 1. 归档当前/指定会话目录
 python scripts/session_archiver.py --archive --session-dir <session_directory> --output my_archive.agarch --description "数据分析阶段一归档"
