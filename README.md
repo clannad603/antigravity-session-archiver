@@ -30,27 +30,24 @@ git clone https://github.com/clannad603/antigravity-session-archiver.git ~/.gemi
 git clone https://github.com/clannad603/antigravity-session-archiver.git .agents/skills/antigravity-session-archiver
 ```
 
-### 🛠️ 命令行与 Web 可视化面板指南 (CLI & Web UI)
+### 🛠️ 便捷使用指南 (极简/零配置/一键启动)
 
-#### 🖥️ 打开可视化 Web Dashboard (推荐)
+#### ⚡ 方式 1：双击一键启动 (免配置 Python / 免命令行)
+- **Windows 用户**：直接双击项目根目录下的 **`start-ui.bat`**。
+- **macOS / Linux 用户**：直接双击或运行 **`./start-ui.sh`**。
+自动利用客户端内置的 Node.js/Python 引擎启动 Web 可视化面板并打开浏览器！
+
+#### 💬 方式 2：智能体聊天全托管 (零打开软件)
+由于插件已集成到 Antigravity 技能库，在聊天框直接对 AI 说：
+- `“把当前对话归档保存”`
+- `“查看归档历史”`
+- `“恢复归档包 xx.agarch”`
+智能体会在后台全自动执行打包与解包，无需用户手动运行任何代码。
+
+#### 💻 方式 3：Node.js 原生免配置引擎 (Node 22+ 免 Python)
 ```bash
-python scripts/session_archiver.py --ui --port 8080
-```
-运行后会自动在浏览器打开 `http://127.0.0.1:8080` 可视化面板，提供卡片式浏览、一键打包归档、解包恢复与统计数据展示。
-
-#### 💻 命令行直接调用 (CLI Usage)
-```bash
-# 1. 归档当前/指定会话目录
-python scripts/session_archiver.py --archive --session-dir <session_directory> --output my_archive.agarch --description "数据分析阶段一归档"
-
-# 2. 恢复归档文件至目标目录
-python scripts/session_archiver.py --restore --input my_archive.agarch --output ./restored_session
-
-# 3. 将 JSONL 对话记录导出为 Markdown 报告
-python scripts/session_archiver.py --export-md --input transcript.jsonl --output session_report.md
-
-# 4. 查看当前目录下所有归档包
-python scripts/session_archiver.py --list --dir .
+# 双引擎支持：无需安装 Python，直接使用 Node 运行
+node scripts/session_archiver.js --ui
 ```
 
 ---
