@@ -11,14 +11,7 @@ if %errorlevel% equ 0 (
     goto :end
 )
 
-where python >nul 2>nul
-if %errorlevel% equ 0 (
-    echo [Info] Found Python engine, starting UI...
-    python "%~dp0scripts\session_archiver.py" --ui
-    goto :end
-)
-
-echo [Error] Neither Node.js nor Python was found on system PATH.
+echo [Error] Node.js not found on system PATH. Please install Node.js 22+.
 pause
 
 :end
